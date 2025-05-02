@@ -5,6 +5,8 @@ const uint8_t id_to_hid[256] = {
   [' '] = 0x2c,
   ['-'] = 0x2d,
   ['='] = 0x2e,
+  ['.'] = 0x37,
+  ['/'] = 0x38,
   ['0'] = 0x27,
   ['1'] = 0x1e,
   ['2'] = 0x1f,
@@ -49,6 +51,8 @@ const uint8_t button_to_hid[256] = {
   [22] = 0x2a, // backspace
   [23] = 0x2b,
   [36] = 0x28,
+  [67] = 0x3a, // F1
+  [76] = 0x43, // F10
   [111] = 0x52, // up arrow
   [116] = 0x51, // down arrow
 };
