@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,9 +13,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+volatile bool keep_running = true;
+
 class Gadget {
 public:
   Gadget(const char *hostname);
+  void terminate();
 };
 
 class BarrierClient {
@@ -223,18 +227,20 @@ void BarrierClient::handle_packet(uint32_t length, const char *buffer) {
 }
 
 void BarrierClient::loop() {
-  char buffer[2048+1];
-  while (true) {
+  const int maxsize = 1<<16;
+  char buffer[maxsize+1];
+  while (keep_running) {
     uint32_t l;
     int s = read(sock, &l, 4);
     if (s == 0) {
       hangup();
       return;
     }
+    printf("size size: %d\n", s);
     assert(s == 4);
     l = ntohl(l);
-    //printf("size: %d\n", l);
-    assert(l < 2048);
+    printf("size: %d\n", l);
+    assert(l < maxsize);
     s = read(sock, buffer, l);
     assert(l == s);
     buffer[s] = 0;
@@ -243,16 +249,25 @@ void BarrierClient::loop() {
   }
 }
 
-void writefile(const char *path, const char *contents) {
+void write_binary_file(const char *path, const unsigned char *contents, int length, bool ignore_error = false) {
   int fd = open(path, O_WRONLY | O_CREAT, 0777);
-  write(fd, contents, strlen(contents));
+  if (fd == -1) {
+    perror("cant open file");
+    printf("while opening '%s'\n", path);
+    if (!ignore_error) exit(1);
+    else return;
+  }
+  int ret = write(fd, contents, length);
+  if (ret == -1) {
+    perror("cant write to file");
+    if (!ignore_error) exit(1);
+    else return;
+  }
   close(fd);
 }
 
-void write_binary_file(const char *path, const unsigned char *contents, int length) {
-  int fd = open(path, O_WRONLY | O_CREAT, 0777);
-  write(fd, contents, length);
-  close(fd);
+void writefile(const char *path, const char *contents, bool ignore_error = false) {
+  write_binary_file(path, (const unsigned char*)contents, strlen(contents), ignore_error);
 }
 
 const unsigned char keyboard_descriptor[] = "\x05\x01\x09\x06\xa1\x01\x05\x07\x19\xe0\x29\xe7\x15\x00\x25\x01\x75\x01\x95\x08\x81\x02\x95\x01\x75\x08\x81\x03\x95\x05\x75\x01\x05\x08\x19\x01\x29\x05\x91\x02\x95\x01\x75\x03\x91\x03\x95\x06\x75\x08\x15\x00\x25\x65\x05\x07\x19\x00\x29\x65\x81\x00\xc0";
@@ -302,7 +317,7 @@ const uint8_t mouse_descriptor[] = {
 };
 
 Gadget::Gadget(const char *hostname) {
-  writefile("/sys/kernel/config/usb_gadget/g1/UDC", "");
+  writefile("/sys/kernel/config/usb_gadget/g1/UDC", "\n", true);
 
   system("modprobe usb_f_hid");
   system("find /sys/kernel/config/usb_gadget/g1 -delete");
@@ -315,7 +330,7 @@ Gadget::Gadget(const char *hostname) {
   writefile("functions/hid.keyboard/protocol", "1");
   writefile("functions/hid.keyboard/subclass", "1");
   writefile("functions/hid.keyboard/report_length", "8");
-  write_binary_file("functions/hid.keyboard/report_desc", keyboard_descriptor, sizeof(keyboard_descriptor));
+  write_binary_file("functions/hid.keyboard/report_desc", keyboard_descriptor, sizeof(keyboard_descriptor) - 1);
 
   writefile("functions/hid.mouse/protocol", "2");
   writefile("functions/hid.mouse/subclass", "0");
@@ -337,9 +352,23 @@ Gadget::Gadget(const char *hostname) {
   system("ls /sys/class/udc/ > UDC");
 }
 
+void Gadget::terminate() {
+  writefile("/sys/kernel/config/usb_gadget/g1/UDC", "\n");
+  system("find /sys/kernel/config/usb_gadget/g1 -delete");
+}
+
+static void int_handler(int) {
+  keep_running = false;
+}
+
 int main(int argc, char **argv) {
   Gadget g("amd-nixos");
-  BarrierClient bc = BarrierClient("10.0.0.15", 24800, "thinkpad");
+  BarrierClient bc = BarrierClient("10.0.0.15", 24800, "pi500");
+
+  signal(SIGINT, &int_handler);
+
   bc.loop();
+
+  g.terminate();
   return 0;
 }
