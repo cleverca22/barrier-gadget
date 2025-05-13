@@ -103,6 +103,8 @@ int get_modifier(int button) {
   else if (button == 62) return 0x20; // right shift
   else if (button == 64) return 0x4;
   else if (button == 108) return 0x40;
+  else if (button == 133) return 0x08; // left super/windows key
+  else if (button == 134) return 0x80; // right super
   else return 0;
 }
 
@@ -128,6 +130,7 @@ void BarrierClient::key_down(struct key_packet &evt) {
     write(keyb_gadget, k_report, 8);
   } else {
     puts("unknown key");
+    printf("key down %d %d %d/0x%x\n", evt.key_id, evt.key_modifier_mask, evt.key_button, evt.key_button);
   }
 }
 
@@ -138,12 +141,19 @@ void BarrierClient::key_up(struct key_packet &evt) {
   }
   k_report[2] = 0;
   write(keyb_gadget, k_report, 8);
+  //printf("key up   %d %d %d\n", evt.key_id, evt.key_modifier_mask, evt.key_button);
 }
 
 void BarrierClient::mouse_move(uint16_t x, uint16_t y) {
+  static bool toggle = false;
+
   *((uint16_t*)(m_report + 1)) = x;
   *((uint16_t*)(m_report + 3)) = y;
-  write(mouse_gadget, m_report, sizeof(m_report));
+  if (toggle) {
+    write(mouse_gadget, m_report, sizeof(m_report));
+  }
+
+  toggle = !toggle;
 }
 
 void BarrierClient::mouse_button(int button, int down) {
@@ -199,12 +209,10 @@ void BarrierClient::handle_packet(uint32_t length, const char *buffer) {
   } else if ((length == 10) && (memcmp(buffer, "DKDN", 4) == 0)) {
     struct key_packet evt = *(const struct key_packet*)buffer;
     byteswap_key(&evt);
-    printf("key down %d %d %d/0x%x\n", evt.key_id, evt.key_modifier_mask, evt.key_button, evt.key_button);
     key_down(evt);
   } else if ((length == 10) && (memcmp(buffer, "DKUP", 4) == 0)) {
     struct key_packet evt = *(const struct key_packet*)buffer;
     byteswap_key(&evt);
-    printf("key up   %d %d %d\n", evt.key_id, evt.key_modifier_mask, evt.key_button);
     key_up(evt);
   } else if ((length == 5) && (memcmp(buffer, "DMDN", 4) == 0)) {
     mouse_button(buffer[4], 1);
@@ -226,6 +234,18 @@ void BarrierClient::handle_packet(uint32_t length, const char *buffer) {
   }
 }
 
+ssize_t read_full(int fd, void *buf, size_t count) {
+  int ret2 = 0;
+  while (count) {
+    int ret = read(fd, buf, count);
+    if (ret <= 0) return ret;
+    count -= ret;
+    buf += ret;
+    ret2 += ret;
+  }
+  return ret2;
+}
+
 void BarrierClient::loop() {
   const int maxsize = 1<<16;
   char buffer[maxsize+1];
@@ -236,12 +256,12 @@ void BarrierClient::loop() {
       hangup();
       return;
     }
-    printf("size size: %d\n", s);
+    //printf("size size: %d\n", s);
     assert(s == 4);
     l = ntohl(l);
-    printf("size: %d\n", l);
+    //printf("size: %d\n", l);
     assert(l < maxsize);
-    s = read(sock, buffer, l);
+    s = read_full(sock, buffer, l);
     assert(l == s);
     buffer[s] = 0;
     //printf("%d '%s'\n", l, buffer);
