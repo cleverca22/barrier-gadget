@@ -30,6 +30,7 @@ public:
   void key_down(struct key_packet &evt);
   void key_up(struct key_packet &evt);
   void mouse_move(uint16_t x, uint16_t y);
+  void mouse_wheel(int16_t relative);
   void mouse_button(int button, int down);
 private:
   void reconnect();
@@ -156,6 +157,12 @@ void BarrierClient::mouse_move(uint16_t x, uint16_t y) {
   toggle = !toggle;
 }
 
+void BarrierClient::mouse_wheel(int16_t relative) {
+  *((int8_t*)(m_report + 5)) = relative / 100;
+  write(mouse_gadget, m_report, sizeof(m_report));
+  *((int8_t*)(m_report + 5)) = 0;
+}
+
 void BarrierClient::mouse_button(int button, int down) {
   int bit = 0;
   if (button == 1) bit = 0;
@@ -226,6 +233,9 @@ void BarrierClient::handle_packet(uint32_t length, const char *buffer) {
     int16_t x = ntohs(*(uint16_t*)(buffer+4));
     int16_t y = ntohs(*(uint16_t*)(buffer+6));
     printf("wheel %d %d\n", x, y);
+    if (x == 0) {
+      mouse_wheel(y);
+    }
   } else {
     char type[5];
     memcpy(type, buffer, 4);
